@@ -1,0 +1,167 @@
+HOME = "/home/tanaka"
+
+FE_NODE = "pz-jam.pezy.co.jp"
+BRICK = "t003k05"
+NODE = "n01"
+
+LIBOMPTARGET_PATH = HOME + "/repos/llvm-openmp/build/libomptarget"
+LIBOMP_PATH = HOME + "/repos/llvm-openmp/build/runtime/src"
+
+LLC = HOME + "/.local/llvm/bin/llc"
+CLANG = HOME + "/.local/llvm/bin/clang++"
+
+WORK_DIR = "/home/hpc/tanaka/work/formura"
+BIN = "main"
+TARBALL = "main.tar.bz2"
+
+make +TARGET='':
+    make {{TARGET}}
+
+clang +OPTS:
+    {{CLANG}} {{OPTS}}
+
+llc +OPTS:
+    {{LLC}} {{OPTS}}
+
+run:
+    just make
+    just _run_prep | ssh {{BRICK}}{{NODE}}
+    scp ./{{BIN}} {{BRICK}}{{NODE}}:{{WORK_DIR}}/
+    just _run_cmd | ssh {{BRICK}}{{NODE}}
+
+_run_prep:
+    #!/usr/bin/env cat
+    pkill -9 main || true
+
+_run_cmd:
+    #!/usr/bin/env cat
+    cd {{WORK_DIR}}
+    export OCL_ICD_VENDORS={{WORK_DIR}}/vendors
+    export OCL_ICD_DEBUG=1
+    export LD_LIBRARY_PATH=./lib
+    export PZSDK_HOME={{WORK_DIR}}/pzsdk-3.0
+    export PATH=$PATH:{{WORK_DIR}}/bin
+
+    export PZCLKernelTimeout=1000000000
+
+    ldd ./{{BIN}}
+    mkdir -p data
+    rm -f pzcl.log
+    ./{{BIN}}
+
+mpi:
+    rm -f {{TARBALL}} && make dist
+    scp ./{{TARBALL}} {{FE_NODE}}:tmp/
+    just _run_mpi_prep | ssh hpc@{{FE_NODE}}+{{BRICK}}{{NODE}}
+    just _compile_mpi_cmd | ssh {{FE_NODE}}
+    just _run_mpi_cmd | ssh hpc@{{FE_NODE}}+{{BRICK}}{{NODE}}
+
+_run_mpi_prep:
+    #!/usr/bin/env cat
+    pkill -9 {{BIN}} || true
+
+_compile_mpi_cmd:
+    #!/usr/bin/env cat
+    pkill -9 {{BIN}} || true
+
+    source /opt/intel/impi/5.0.3.048/intel64/bin/mpivars.sh
+    source /opt/intel/bin/iccvars.sh intel64
+
+    cd tmp
+    rm -rf src
+    mkdir src
+    cd src
+    tar -xvf ../{{TARBALL}}
+    sed -i 's/kernel.pzc/kernel.pzcc/g' Makefile # avoid generating kernel.pzc
+    sed -i 's/kernel.pz/kernel.pzcc/g' Makefile # avoid generating kernel.pzc
+    make || exit 1
+    scp {{BIN}} hpc@{{FE_NODE}}:{{WORK_DIR}}/
+
+_run_mpi_cmd:
+    #!/usr/bin/env cat
+    cd {{WORK_DIR}}
+    rm -rf pzcl.log
+
+    source /opt/intel/impi/5.0.3.048/intel64/bin/mpivars.sh
+
+    export OCL_ICD_VENDORS={{WORK_DIR}}/vendors
+    export OCL_ICD_DEBUG=0
+    export LD_LIBRARY_PATH=./lib
+    export PZSDK_HOME={{WORK_DIR}}/pzsdk-3.0
+    export PATH=$PATH:{{WORK_DIR}}/bin
+
+    export PZCLKernelTimeout=1000000000
+    export PZCLLogLevel=5
+
+    export RUST_BACKTRACE=1
+
+    # mpiexec.hydra -iface=ib0 -ppn 8 -n 32 -host t003k04n01,t003k04n02,t003k04n03,t003k04n04 \
+    #     hostname
+
+    # mpiexec.hydra -iface=ib0 -ppn 8 -n 32 -host t003k04n01,t003k04n02,t003k04n03,t003k04n04 \
+    #     ./main --px=2 --py=4 --pz=4
+
+    mpiexec.hydra -iface=ib0 -ppn 8 -n 1 -host {{BRICK}}{{NODE}} \
+        ./main --px=1 --py=1 --pz=1
+
+log:
+    scp hpc@{{BRICK}}{{NODE}}:{{WORK_DIR}}/pzcl.log .
+    less pzcl.log
+
+extract:
+    cd ../scheduler && stack script --resolver=lts-11.1 ./extract.hs < ./tmp.txt
+
+setup:
+    just _setup_prep | ssh {{BRICK}}{{NODE}}
+
+    scp /usr/lib64/libOpenCL* {{BRICK}}{{NODE}}:{{WORK_DIR}}/lib
+    scp /usr/lib64/libfftw3.* {{BRICK}}{{NODE}}:{{WORK_DIR}}/lib
+    scp /usr/lib64/libgsl.* {{BRICK}}{{NODE}}:{{WORK_DIR}}/lib
+    scp /usr/lib64/libgslcblas.* {{BRICK}}{{NODE}}:{{WORK_DIR}}/lib
+    scp /usr/lib64/atlas/libsatlas.* {{BRICK}}{{NODE}}:{{WORK_DIR}}/lib
+    scp /home/tanaka/.local/lib/libpezyocl.so {{BRICK}}{{NODE}}:{{WORK_DIR}}/lib
+
+    echo libpezyocl.so > pezyocl.icd
+    scp pezyocl.icd {{BRICK}}{{NODE}}:{{WORK_DIR}}/vendors
+    scp $(which pzcc) {{BRICK}}{{NODE}}:{{WORK_DIR}}/bin
+    scp -r ~/.local/pzsdk-3.0 {{BRICK}}{{NODE}}:{{WORK_DIR}}
+
+    just _setup_cmd | ssh {{BRICK}}{{NODE}}
+
+_setup_prep:
+    #!/usr/bin/env cat
+    rm -rf {{WORK_DIR}}
+    mkdir -p {{WORK_DIR}}
+    mkdir -p {{WORK_DIR}}/lib
+    mkdir -p {{WORK_DIR}}/bin
+    mkdir -p {{WORK_DIR}}/vendors
+
+_setup_cmd:
+    #!/usr/bin/env cat
+    cd {{WORK_DIR}}
+    sudo mkdir -p /etc/OpenCL/vendors
+    sudo cp vendors/pezyocl.icd /etc/OpenCL/vendors
+
+rfm CMD:
+    just _rfm_cmd {{CMD}} | ssh {{FE_NODE}}
+
+_rfm_cmd CMD:
+    #!/usr/bin/env cat
+    cd /home/local/x86/tools/
+    ./rfm_{{CMD}}.sh {{BRICK}}
+    ping {{BRICK}}{{NODE}}
+
+reset_device:
+    just _reset_device_cmd | ssh {{BRICK}}{{NODE}}
+
+reset_all:
+    just _reset_device_cmd | ssh {{BRICK}}n01
+    just _reset_device_cmd | ssh {{BRICK}}n02
+    just _reset_device_cmd | ssh {{BRICK}}n03
+    just _reset_device_cmd | ssh {{BRICK}}n04
+
+_reset_device_cmd:
+    #!/usr/bin/env cat
+    cd /home/local/x86/tools/
+    sudo ./__setup.sh
+    sudo ./pzclkall.sh -s 700e6

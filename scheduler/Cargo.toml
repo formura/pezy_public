@@ -1,0 +1,9 @@
+[package]
+name = "scheduler"
+version = "0.1.0"
+authors = ["Hideyuki Tanaka <tanaka.hideyuki@gmail.com>"]
+
+[dependencies]
+rand = "*"
+structopt = "0.2"
+regex = "0.2"

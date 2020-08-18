@@ -1,0 +1,84 @@
+vis1 = 4/3*u_xx + 1/3*v_xy + 1/3*w_xz + u_yy + u_zz
+vis2 = 1/3*u_xy + 4/3*v_yy + 1/3*w_yz + v_xx + v_zz
+vis3 = 1/3*u_xz + 1/3*v_yz + 4/3*w_zz + w_xx + w_yy
+vis1_x = 4/3*u_xxx + 1/3*v_xxy + 1/3*w_xxz + u_xyy + u_xzz
+vis2_x = 1/3*u_xxy + 4/3*v_xyy + 1/3*w_xyz + v_xzz + v_xxx
+vis3_x = 1/3*u_xxz + 1/3*v_xyz + 4/3*w_xzz + w_xyy + w_xxx
+vis1_y = 4/3*u_xxy + 1/3*v_xyy + 1/3*w_xyz + u_yzz + u_yyy
+vis2_y = 1/3*u_xyy + 4/3*v_yyy + 1/3*w_yyz + v_xxy + v_yzz
+vis3_y = 1/3*u_xyz + 1/3*v_yyz + 4/3*w_yzz + w_xxy + w_yyy
+vis1_z = 4/3*u_xxz + 1/3*v_xyz + 1/3*w_xzz + u_yyz + u_zzz
+vis2_z = 1/3*u_xyz + 4/3*v_yyz + 1/3*w_yzz + v_xxz + v_zzz
+vis3_z = 1/3*u_xzz + 1/3*v_yzz + 4/3*w_zzz + w_xxz + w_yyz
+vis1_xx = 4/3*u_xxxx + 1/3*v_xxxy + 1/3*w_xxxz + u_xxyy + u_xxzz
+vis2_xx = 1/3*u_xxxy + 4/3*v_xxyy + 1/3*w_xxyz + v_xxzz + v_xxxx
+vis3_xx = 1/3*u_xxxz + 1/3*v_xxyz + 4/3*w_xxzz + w_xxyy + w_xxxx
+vis1_yy = 4/3*u_xxyy + 1/3*v_xyyy + 1/3*w_xyyz + u_yyzz + u_yyyy
+vis2_yy = 1/3*u_xyyy + 4/3*v_yyyy + 1/3*w_yyyz + v_xxyy + v_yyzz
+vis3_yy = 1/3*u_xyyz + 1/3*v_yyyz + 4/3*w_yyzz + w_xxyy + w_yyyy
+vis1_zz = 4/3*u_xxzz + 1/3*v_xyzz + 1/3*w_xzzz + u_yyzz + u_zzzz
+vis2_zz = 1/3*u_xyzz + 4/3*v_yyzz + 1/3*w_yzzz + v_xxzz + v_zzzz
+vis3_zz = 1/3*u_xzzz + 1/3*v_yzzz + 4/3*w_zzzz + w_xxzz + w_yyzz
+vis1_xy = 4/3*u_xxxy + 1/3*v_xxyy + 1/3*w_xxyz + u_xyzz + u_xyyy
+vis2_xy = 1/3*u_xxyy + 4/3*v_xyyy + 1/3*w_xyyz + v_xyzz + v_xxxy
+vis3_xy = 1/3*u_xxyz + 1/3*v_xyyz + 4/3*w_xyzz + w_xyyy + w_xxxy
+vis1_yz = 4/3*u_xxyz + 1/3*v_xyyz + 1/3*w_xyzz + u_yzzz + u_yyyz
+vis2_yz = 1/3*u_xyyz + 4/3*v_yyyz + 1/3*w_yyzz + v_xxyz + v_yzzz
+vis3_yz = 1/3*u_xyzz + 1/3*v_yyzz + 4/3*w_yzzz + w_xxyz + w_yyyz
+vis1_xz = 4/3*u_xxxz + 1/3*v_xxyz + 1/3*w_xxzz + u_xyyz + u_xzzz
+vis2_xz = 1/3*u_xxyz + 4/3*v_xyyz + 1/3*w_xyzz + v_xzzz + v_xxxz
+vis3_xz = 1/3*u_xxzz + 1/3*v_xyzz + 4/3*w_xzzz + w_xyyz + w_xxxz
+vis1_t = 4/3*u_txx + 1/3*v_txy + 1/3*w_txz + u_tyy + u_tzz
+vis2_t = 1/3*u_txy + 4/3*v_tyy + 1/3*w_tyz + v_txx + v_tzz
+vis3_t = 1/3*u_txz + 1/3*v_tyz + 4/3*w_tzz + w_txx + w_tyy
+
+r_t = -rp*u_x - rp*v_y - rp*w_z - r_x*up - r_y*vp - r_z*wp
+u_t = c/rp*vis1 - p_x/rp - up*u_x - u_y*vp - u_z*wp
+v_t = c/rp*vis2 - p_y/rp - up*v_x - vp*v_y - v_z*wp
+w_t = c/rp*vis3 - p_z/rp - up*w_x - vp*w_y - wp*w_z
+p_t = -c2*up*vis1 - c2*vp*vis2 - c2*vis3*wp - gm*pp*u_x - gm*pp*v_y - gm*pp*w_z - p_x*up - p_y*vp - p_z*wp
+
+r_tx = -rp*u_xx - rp*v_xy - rp*w_xz - 2*r_x*u_x - r_x*v_y - r_x*w_z - r_xy*vp - r_xz*wp - r_xx*up - r_y*v_x - r_z*w_x
+u_tx = -c*(rp)**(-2)*r_x*vis1 + c/rp*vis1_x + p_x*(rp)**(-2)*r_x - p_xx/rp - up*u_xx - (u_x)**(2) - u_xy*vp - u_xz*wp - u_y*v_x - u_z*w_x
+v_tx = -c*(rp)**(-2)*r_x*vis2 + c/rp*vis2_x - p_xy/rp + p_y*(rp)**(-2)*r_x - up*v_xx - u_x*v_x - vp*v_xy - v_x*v_y - v_xz*wp - v_z*w_x
+w_tx = -c*(rp)**(-2)*r_x*vis3 + c/rp*vis3_x - p_xz/rp + p_z*(rp)**(-2)*r_x - up*w_xx - u_x*w_x - vp*w_xy - v_x*w_y - wp*w_xz - w_x*w_z
+p_tx = -c2*up*vis1_x - c2*u_x*vis1 - c2*vp*vis2_x - c2*v_x*vis2 - c2*vis3*w_x - c2*vis3_x*wp - gm*pp*u_xx - gm*pp*v_xy - gm*pp*w_xz - gm*p_x*u_x - gm*p_x*v_y - gm*p_x*w_z - p_x*u_x - p_xy*vp - p_xz*wp - p_xx*up - p_y*v_x - p_z*w_x
+
+r_ty = -rp*u_xy - rp*v_yy - rp*w_yz - r_x*u_y - r_xy*up - r_y*u_x - 2*r_y*v_y - r_y*w_z - r_yz*wp - r_yy*vp - r_z*w_y
+u_ty = -c*(rp)**(-2)*r_y*vis1 + c/rp*vis1_y + p_x*(rp)**(-2)*r_y - p_xy/rp - up*u_xy - u_x*u_y - u_y*v_y - u_yz*wp - u_yy*vp - u_z*w_y
+v_ty = -c*(rp)**(-2)*r_y*vis2 + c/rp*vis2_y + p_y*(rp)**(-2)*r_y - p_yy/rp - up*v_xy - u_y*v_x - vp*v_yy - (v_y)**(2) - v_yz*wp - v_z*w_y
+w_ty = -c*(rp)**(-2)*r_y*vis3 + c/rp*vis3_y - p_yz/rp + p_z*(rp)**(-2)*r_y - up*w_xy - u_y*w_x - vp*w_yy - v_y*w_y - wp*w_yz - w_y*w_z
+p_ty = -c2*up*vis1_y - c2*u_y*vis1 - c2*vp*vis2_y - c2*v_y*vis2 - c2*vis3*w_y - c2*vis3_y*wp - gm*pp*u_xy - gm*pp*v_yy - gm*pp*w_yz - gm*p_y*u_x - gm*p_y*v_y - gm*p_y*w_z - p_x*u_y - p_xy*up - p_y*v_y - p_yz*wp - p_yy*vp - p_z*w_y
+
+r_tz = -rp*u_xz - rp*v_yz - rp*w_zz - r_x*u_z - r_xz*up - r_y*v_z - r_yz*vp - r_z*u_x - r_z*v_y - 2*r_z*w_z - r_zz*wp
+u_tz = -c*(rp)**(-2)*r_z*vis1 + c/rp*vis1_z + p_x*(rp)**(-2)*r_z - p_xz/rp - up*u_xz - u_x*u_z - u_y*v_z - u_yz*vp - u_z*w_z - u_zz*wp
+v_tz = -c*(rp)**(-2)*r_z*vis2 + c/rp*vis2_z + p_y*(rp)**(-2)*r_z - p_yz/rp - up*v_xz - u_z*v_x - vp*v_yz - v_y*v_z - v_z*w_z - v_zz*wp
+w_tz = -c*(rp)**(-2)*r_z*vis3 + c/rp*vis3_z + p_z*(rp)**(-2)*r_z - p_zz/rp - up*w_xz - u_z*w_x - vp*w_yz - v_z*w_y - wp*w_zz - (w_z)**(2)
+p_tz = -c2*up*vis1_z - c2*u_z*vis1 - c2*vp*vis2_z - c2*v_z*vis2 - c2*vis3*w_z - c2*vis3_z*wp - gm*pp*u_xz - gm*pp*v_yz - gm*pp*w_zz - gm*p_z*u_x - gm*p_z*v_y - gm*p_z*w_z - p_x*u_z - p_xz*up - p_y*v_z - p_yz*vp - p_z*w_z - p_zz*wp
+
+u_txx = 2*c*(rp)**(-3)*(r_x)**(2)*vis1 - 2*c*(rp)**(-2)*r_x*vis1_x - c*(rp)**(-2)*r_xx*vis1 + c/rp*vis1_xx - 2*p_x*(rp)**(-3)*(r_x)**(2) + p_x*(rp)**(-2)*r_xx + 2*p_xx*(rp)**(-2)*r_x - p_xxx/rp - up*u_xxx - 3*u_x*u_xx - 2*u_xy*v_x - 2*u_xz*w_x - u_xxy*vp - u_xxz*wp - u_y*v_xx - u_z*w_xx
+v_txx = 2*c*(rp)**(-3)*(r_x)**(2)*vis2 - 2*c*(rp)**(-2)*r_x*vis2_x - c*(rp)**(-2)*r_xx*vis2 + c/rp*vis2_xx + 2*p_xy*(rp)**(-2)*r_x - p_xxy/rp - 2*p_y*(rp)**(-3)*(r_x)**(2) + p_y*(rp)**(-2)*r_xx - up*v_xxx - 2*u_x*v_xx - u_xx*v_x - vp*v_xxy - 2*v_x*v_xy - 2*v_xz*w_x - v_xx*v_y - v_xxz*wp - v_z*w_xx
+w_txx = 2*c*(rp)**(-3)*(r_x)**(2)*vis3 - 2*c*(rp)**(-2)*r_x*vis3_x - c*(rp)**(-2)*r_xx*vis3 + c/rp*vis3_xx + 2*p_xz*(rp)**(-2)*r_x - p_xxz/rp - 2*p_z*(rp)**(-3)*(r_x)**(2) + p_z*(rp)**(-2)*r_xx - up*w_xxx - 2*u_x*w_xx - u_xx*w_x - vp*w_xxy - 2*v_x*w_xy - v_xx*w_y - wp*w_xxz - 2*w_x*w_xz - w_xx*w_z
+
+u_tyy = 2*c*(rp)**(-3)*(r_y)**(2)*vis1 - 2*c*(rp)**(-2)*r_y*vis1_y - c*(rp)**(-2)*r_yy*vis1 + c/rp*vis1_yy - 2*p_x*(rp)**(-3)*(r_y)**(2) + p_x*(rp)**(-2)*r_yy + 2*p_xy*(rp)**(-2)*r_y - p_xyy/rp - up*u_xyy - u_x*u_yy - 2*u_xy*u_y - u_y*v_yy - 2*u_yz*w_y - 2*u_yy*v_y - u_yyz*wp - u_yyy*vp - u_z*w_yy
+v_tyy = 2*c*(rp)**(-3)*(r_y)**(2)*vis2 - 2*c*(rp)**(-2)*r_y*vis2_y - c*(rp)**(-2)*r_yy*vis2 + c/rp*vis2_yy - 2*p_y*(rp)**(-3)*(r_y)**(2) + p_y*(rp)**(-2)*r_yy + 2*p_yy*(rp)**(-2)*r_y - p_yyy/rp - up*v_xyy - 2*u_y*v_xy - u_yy*v_x - vp*v_yyy - 3*v_y*v_yy - 2*v_yz*w_y - v_yyz*wp - v_z*w_yy
+w_tyy = 2*c*(rp)**(-3)*(r_y)**(2)*vis3 - 2*c*(rp)**(-2)*r_y*vis3_y - c*(rp)**(-2)*r_yy*vis3 + c/rp*vis3_yy + 2*p_yz*(rp)**(-2)*r_y - p_yyz/rp - 2*p_z*(rp)**(-3)*(r_y)**(2) + p_z*(rp)**(-2)*r_yy - up*w_xyy - 2*u_y*w_xy - u_yy*w_x - vp*w_yyy - 2*v_y*w_yy - v_yy*w_y - wp*w_yyz - 2*w_y*w_yz - w_yy*w_z
+
+u_tzz = 2*c*(rp)**(-3)*(r_z)**(2)*vis1 - 2*c*(rp)**(-2)*r_z*vis1_z - c*(rp)**(-2)*r_zz*vis1 + c/rp*vis1_zz - 2*p_x*(rp)**(-3)*(r_z)**(2) + p_x*(rp)**(-2)*r_zz + 2*p_xz*(rp)**(-2)*r_z - p_xzz/rp - up*u_xzz - u_x*u_zz - 2*u_xz*u_z - u_y*v_zz - 2*u_yz*v_z - u_yzz*vp - u_z*w_zz - 2*u_zz*w_z - u_zzz*wp
+v_tzz = 2*c*(rp)**(-3)*(r_z)**(2)*vis2 - 2*c*(rp)**(-2)*r_z*vis2_z - c*(rp)**(-2)*r_zz*vis2 + c/rp*vis2_zz - 2*p_y*(rp)**(-3)*(r_z)**(2) + p_y*(rp)**(-2)*r_zz + 2*p_yz*(rp)**(-2)*r_z - p_yzz/rp - up*v_xzz - 2*u_z*v_xz - u_zz*v_x - vp*v_yzz - v_y*v_zz - 2*v_yz*v_z - v_z*w_zz - 2*v_zz*w_z - v_zzz*wp
+w_tzz = 2*c*(rp)**(-3)*(r_z)**(2)*vis3 - 2*c*(rp)**(-2)*r_z*vis3_z - c*(rp)**(-2)*r_zz*vis3 + c/rp*vis3_zz - 2*p_z*(rp)**(-3)*(r_z)**(2) + p_z*(rp)**(-2)*r_zz + 2*p_zz*(rp)**(-2)*r_z - p_zzz/rp - up*w_xzz - 2*u_z*w_xz - u_zz*w_x - vp*w_yzz - 2*v_z*w_yz - v_zz*w_y - wp*w_zzz - 3*w_z*w_zz
+
+u_txy = 2*c*(rp)**(-3)*r_x*r_y*vis1 - c*(rp)**(-2)*r_x*vis1_y - c*(rp)**(-2)*r_xy*vis1 - c*(rp)**(-2)*r_y*vis1_x + c/rp*vis1_xy - 2*p_x*(rp)**(-3)*r_x*r_y + p_x*(rp)**(-2)*r_xy + p_xy*(rp)**(-2)*r_x + p_xx*(rp)**(-2)*r_y - p_xxy/rp - up*u_xxy - 2*u_x*u_xy - u_xy*v_y - u_xyz*wp - u_xyy*vp - u_xz*w_y - u_xx*u_y - u_y*v_xy - u_yz*w_x - u_yy*v_x - u_z*w_xy
+v_txy = 2*c*(rp)**(-3)*r_x*r_y*vis2 - c*(rp)**(-2)*r_x*vis2_y - c*(rp)**(-2)*r_xy*vis2 - c*(rp)**(-2)*r_y*vis2_x + c/rp*vis2_xy + p_xy*(rp)**(-2)*r_y - p_xyy/rp - 2*p_y*(rp)**(-3)*r_x*r_y + p_y*(rp)**(-2)*r_xy + p_yy*(rp)**(-2)*r_x - up*v_xxy - u_x*v_xy - u_xy*v_x - u_y*v_xx - vp*v_xyy - v_x*v_yy - 2*v_xy*v_y - v_xyz*wp - v_xz*w_y - v_yz*w_x - v_z*w_xy
+
+v_tyz = 2*c*(rp)**(-3)*r_y*r_z*vis2 - c*(rp)**(-2)*r_y*vis2_z - c*(rp)**(-2)*r_yz*vis2 - c*(rp)**(-2)*r_z*vis2_y + c/rp*vis2_yz - 2*p_y*(rp)**(-3)*r_y*r_z + p_y*(rp)**(-2)*r_yz + p_yz*(rp)**(-2)*r_y + p_yy*(rp)**(-2)*r_z - p_yyz/rp - up*v_xyz - u_y*v_xz - u_yz*v_x - u_z*v_xy - vp*v_yyz - 2*v_y*v_yz - v_yz*w_z - v_yzz*wp - v_yy*v_z - v_z*w_yz - v_zz*w_y
+w_tyz = 2*c*(rp)**(-3)*r_y*r_z*vis3 - c*(rp)**(-2)*r_y*vis3_z - c*(rp)**(-2)*r_yz*vis3 - c*(rp)**(-2)*r_z*vis3_y + c/rp*vis3_yz + p_yz*(rp)**(-2)*r_z - p_yzz/rp - 2*p_z*(rp)**(-3)*r_y*r_z + p_z*(rp)**(-2)*r_yz + p_zz*(rp)**(-2)*r_y - up*w_xyz - u_y*w_xz - u_yz*w_x - u_z*w_xy - vp*w_yyz - v_y*w_yz - v_yz*w_y - v_z*w_yy - wp*w_yzz - w_y*w_zz - 2*w_yz*w_z
+
+u_txz = 2*c*(rp)**(-3)*r_x*r_z*vis1 - c*(rp)**(-2)*r_x*vis1_z - c*(rp)**(-2)*r_xz*vis1 - c*(rp)**(-2)*r_z*vis1_x + c/rp*vis1_xz - 2*p_x*(rp)**(-3)*r_x*r_z + p_x*(rp)**(-2)*r_xz + p_xz*(rp)**(-2)*r_x + p_xx*(rp)**(-2)*r_z - p_xxz/rp - up*u_xxz - 2*u_x*u_xz - u_xy*v_z - u_xyz*vp - u_xz*w_z - u_xzz*wp - u_xx*u_z - u_y*v_xz - u_yz*v_x - u_z*w_xz - u_zz*w_x
+w_txz = 2*c*(rp)**(-3)*r_x*r_z*vis3 - c*(rp)**(-2)*r_x*vis3_z - c*(rp)**(-2)*r_xz*vis3 - c*(rp)**(-2)*r_z*vis3_x + c/rp*vis3_xz + p_xz*(rp)**(-2)*r_z - p_xzz/rp - 2*p_z*(rp)**(-3)*r_x*r_z + p_z*(rp)**(-2)*r_xz + p_zz*(rp)**(-2)*r_x - up*w_xxz - u_x*w_xz - u_xz*w_x - u_z*w_xx - vp*w_xyz - v_x*w_yz - v_xz*w_y - v_z*w_xy - wp*w_xzz - w_x*w_zz - 2*w_xz*w_z
+
+r_tt = -rp*u_tx - rp*v_ty - rp*w_tz - r_t*u_x - r_t*v_y - r_t*w_z - r_tx*up - r_ty*vp - r_tz*wp - r_x*u_t - r_y*v_t - r_z*w_t
+u_tt = -c*(rp)**(-2)*r_t*vis1 + c/rp*vis1_t - p_tx/rp + p_x*(rp)**(-2)*r_t - up*u_tx - u_t*u_x - u_ty*vp - u_tz*wp - u_y*v_t - u_z*w_t
+v_tt = -c*(rp)**(-2)*r_t*vis2 + c/rp*vis2_t - p_ty/rp + p_y*(rp)**(-2)*r_t - up*v_tx - u_t*v_x - vp*v_ty - v_t*v_y - v_tz*wp - v_z*w_t
+w_tt = -c*(rp)**(-2)*r_t*vis3 + c/rp*vis3_t - p_tz/rp + p_z*(rp)**(-2)*r_t - up*w_tx - u_t*w_x - vp*w_ty - v_t*w_y - wp*w_tz - w_t*w_z
+p_tt = -c2*up*vis1_t - c2*u_t*vis1 - c2*vp*vis2_t - c2*v_t*vis2 - c2*vis3*w_t - c2*vis3_t*wp - gm*pp*u_tx - gm*pp*v_ty - gm*pp*w_tz - gm*p_t*u_x - gm*p_t*v_y - gm*p_t*w_z - p_tx*up - p_ty*vp - p_tz*wp - p_x*u_t - p_y*v_t - p_z*w_t

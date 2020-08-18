@@ -1,0 +1,734 @@
+#include <pzc_builtin_internal.h>
+#include <pzcperf.h>
+
+constexpr int THREADS_PER_PE = 4;
+
+#define MAX_PERF 16384
+// PZCPerformance gPerf[MAX_PERF];
+PZCPerformance auxPerf[16];
+
+void pzc_GetPerformance(PZCPerformance* out, int idx)
+{
+    if (get_tid() == 0 && get_pid() == 0) {
+        if (idx < MAX_PERF) {
+            // *out = gPerf[idx];
+        } else {
+            *out = auxPerf[idx - MAX_PERF];
+        }
+    }
+    flush();
+}
+
+template <typename _Tp, size_t _Nm>
+struct array {
+    _Tp data[3];
+
+    _Tp& operator[](size_t __n) noexcept { return data[__n]; }
+    const _Tp& operator[](size_t __n) const noexcept { return data[__n]; }
+};
+
+template <typename T>
+void swap(T& a, T& b)
+{
+    T c = a;
+    a = b;
+    b = c;
+}
+
+//-----
+
+void pzc_get_stack_ptrs(uint64_t* sps)
+{
+    int tid = get_tid();
+    uint64_t sp;
+
+    // sp = x2
+    asm volatile("i64.mov %0 sp"
+                 : "=r"(sp)
+                 :
+                 :);
+    sps[tid] = sp;
+    flush();
+}
+
+//-----
+
+#include "config.h"
+
+template <typename T, size_t X1, size_t Y1, size_t Z1, size_t X2, size_t Y2, size_t Z2>
+void copy_cubo(
+    T (&dst)[X1][Y1][Z1],
+    const T (&src)[X2][Y2][Z2],
+    const array<int, 3>& dst_offset,
+    const array<int, 3>& src_offset,
+    const array<int, 3>& region)
+{
+    int gid = get_pid() * THREADS_PER_PE + get_tid();
+    int gws = get_maxpid() * THREADS_PER_PE;
+
+    for (int i = gid; i < region[0] * region[1] * region[2]; i += gws) {
+        int x = i / region[2] / region[1];
+        int y = i / region[2] % region[1];
+        int z = i % region[2];
+
+        dst[x + dst_offset[0]][y + dst_offset[1]][z + dst_offset[2]] = src[x + src_offset[0]][y + src_offset[1]][z + src_offset[2]];
+    }
+}
+
+template <typename T, size_t X1, size_t Y1, size_t Z1>
+void fill_cubo(
+    T (&dst)[X1][Y1][Z1],
+    const T& val,
+    const array<int, 3>& dst_offset,
+    const array<int, 3>& region)
+{
+    int gid = get_pid() * THREADS_PER_PE + get_tid();
+    int gws = get_maxpid() * THREADS_PER_PE;
+
+    for (int i = gid; i < region[0] * region[1] * region[2]; i += gws) {
+        int x = i / region[2] / region[1];
+        int y = i / region[2] % region[1];
+        int z = i % region[2];
+
+        dst[x + dst_offset[0]][y + dst_offset[1]][z + dst_offset[2]] = val;
+    }
+}
+
+#define d_eldd(V, P, OFF) asm volatile("d.eldd %[v] %[p] %[off]" \
+                                       : [v] "=w"(V)             \
+                                       : [p] "r"(P), [off] "i"(OFF))
+#define d_eldd(V, P, OFF) asm volatile("d.eldd %[v] %[p] %[off]" \
+                                       : [v] "=w"(V)             \
+                                       : [p] "r"(P), [off] "i"(OFF))
+#define f_eld(V, P, OFF) asm volatile("f.eld %[v] %[p] %[off]" \
+                                      : [v] "=w"(V)            \
+                                      : [p] "r"(P), [off] "i"(OFF))
+#define i_eldd(V, P, OFF) asm volatile("i.eldd %[v] %[p] %[off]" \
+                                       : [v] "=r"(V)             \
+                                       : [p] "r"(P), [off] "i"(OFF))
+#define d_eldd_ct(V, P, OFF) asm volatile("d.eldd.ct %[v] %[p] %[off]" \
+                                          : [v] "=w"(V)                \
+                                          : [p] "r"(P), [off] "i"(OFF))
+#define d_ldd(V, P, OFF) asm volatile("d.ldd %[v] %[p] %[off]" \
+                                      : [v] "=w"(V)            \
+                                      : [p] "r"(P), [off] "i"(OFF))
+#define f_ld(V, P, OFF) asm volatile("f.ld %[v] %[p] %[off]" \
+                                     : [v] "=w"(V)           \
+                                     : [p] "r"(P), [off] "i"(OFF))
+
+#define d_esd(P, OFF, V) asm volatile("d.esd %[p] %[off] %[v]" ::[v] "w"(V), [p] "r"(P), [off] "i"(OFF))
+#define d_sd(P, OFF, V) asm volatile("d.sd %[p] %[off] %[v]" ::[v] "w"(V), [p] "r"(P), [off] "i"(OFF))
+#define f_esw(P, OFF, V) asm volatile("f.esw %[p] %[off] %[v]" ::[v] "w"(V), [p] "r"(P), [off] "i"(OFF))
+#define f_sw(P, OFF, V) asm volatile("f.sw %[p] %[off] %[v]" ::[v] "w"(V), [p] "r"(P), [off] "i"(OFF))
+#define h_sh(P, OFF, V) asm volatile("h.sh %[p] %[off] %[v]" ::[v] "w"(V), [p] "r"(P), [off] "i"(OFF))
+
+#define d_mad(D, A, B, C) asm volatile("d.mad %[d] %[a] %[b] %[c]" \
+                                       : [d] "=w"(D)               \
+                                       : [c] "w"(C), [a] "w"(A), [b] "w"(B))
+//#define d_nmad(D,A,B,C) asm volatile ("d.nmad %[d] %[a] %[b] %[c]":[d]"=w"(D):[c]"w"(C),[a]"w"(A),[b]"w"(B))
+#define d_mul(C, A, B) asm volatile("d.mul %[c] %[a] %[b]" \
+                                    : [c] "=w"(C)          \
+                                    : [a] "w"(A), [b] "w"(B))
+#define d_rsqrt(B, A) asm volatile("d.rsqrt %[dst] %[src]" \
+                                   : [dst] "=w"(B)         \
+                                   : [src] "w"(A))
+#define d_mov(B, A) asm volatile("d.mov %[dst] %[src]" \
+                                 : [dst] "=w"(B)       \
+                                 : [src] "w"(A))
+#define v2f_rsqrt(B, A) asm volatile("v2f.rsqrt %[dst] %[src]" \
+                                     : [dst] "=w"(B)           \
+                                     : [src] "w"(A))
+#define v2f_mov(C, A, B) asm volatile("v2f.mov %[c] %[a] %[b]" \
+                                      : [c] "=w"(C)            \
+                                      : [a] "w"(A), [b] "w"(B))
+#define d_dtof(B, A) asm volatile("d.dtof %[dst] %[src]" \
+                                  : [dst] "=w"(B)        \
+                                  : [src] "w"(A))
+#define d_ftod(B, A) asm volatile("d.ftod %[dst] %[src]" \
+                                  : [dst] "=w"(B)        \
+                                  : [src] "w"(A))
+#define h_ftoh(B, A) asm volatile("h.ftoh.h %[dst] %[src]" \
+                                  : [dst] "=w"(B)          \
+                                  : [src] "w"(A))
+#define f_rsqrt(B, A) asm volatile("f.rsqrt %[dst] %[src]" \
+                                   : [dst] "=w"(B)         \
+                                   : [src] "w"(A))
+#define d_sub(C, A, B) asm volatile("d.sub %[c] %[a] %[b]" \
+                                    : [c] "=w"(C)          \
+                                    : [a] "w"(A), [b] "w"(B))
+#define d_add(C, A, B) asm volatile("d.add %[c] %[a] %[b]" \
+                                    : [c] "=w"(C)          \
+                                    : [a] "w"(A), [b] "w"(B))
+#define c_chgthread() asm volatile("c.chgthread");
+#define v4h_ftoh(B, A) asm volatile("v4h.ftoh %[dst] %[src]" \
+                                    : [dst] "=w"(B)          \
+                                    : [src] "w"(A))
+#define v4h_pack_lo(C, A, B) asm volatile("v4h.pack.lo %[c] %[a] %[c]" \
+                                          : [c] "=w"(C)                \
+                                          : [a] "w"(A), [b] "w"(B))
+
+#define v2f_add(C, A, B) asm volatile("v2f.add %[c] %[a] %[b]" \
+                                      : [c] "=w"(C)            \
+                                      : [a] "w"(A), [b] "w"(B))
+#define v2f_sub(C, A, B) asm volatile("v2f.sub %[c] %[a] %[b]" \
+                                      : [c] "=w"(C)            \
+                                      : [a] "w"(A), [b] "w"(B))
+#define v2f_mul(C, A, B) asm volatile("v2f.mul %[c] %[a] %[b]" \
+                                      : [c] "=w"(C)            \
+                                      : [a] "w"(A), [b] "w"(B))
+#define v2f_min(C, A, B) asm volatile("v2f.min %[c] %[a] %[b]" \
+                                      : [c] "=w"(C)            \
+                                      : [a] "w"(A), [b] "w"(B))
+#define v2f_max(C, A, B) asm volatile("v2f.max %[c] %[a] %[b]" \
+                                      : [c] "=w"(C)            \
+                                      : [a] "w"(A), [b] "w"(B))
+#define v2f_mad(D, A, B, C) asm volatile("v2f.mad %[d] %[a] %[b] %[c]" \
+                                         : [d] "=w"(D)                 \
+                                         : [c] "w"(C), [a] "w"(A), [b] "w"(B))
+#define h_unpackloh_s(B, A) asm volatile("h.unpackloh.s %[b] %[a]" \
+                                         : [b] "=w"(B)             \
+                                         : [a] "w"(A))
+#define h_unpackhih_s(B, A) asm volatile("h.unpackloh.s %[b] %[a]" \
+                                         : [b] "=w"(B)             \
+                                         : [a] "w"(A))
+#define v4h_rot(B, A, I) asm volatile("v4h.rot %[b] %[a] %[i]" \
+                                      : [b] "=w"(B)            \
+                                      : [a] "w"(A), [i] "i"(I))
+#define i64_addi(B, A, I) asm volatile("i64.addi %[b] %[a] %[i]" \
+                                       : [b] "=r"(B)             \
+                                       : [a] "r"(A), [i] "i"(I))
+
+#define d_sflt(A, B) asm volatile("d.sflt %[a] %[b]" ::[a] "w"(A), [b] "w"(B) \
+                                  : "cc")
+#define d_select(C, A, B) asm volatile("d.select %[c] %[a] %[b]" \
+                                       : [c] "=w"(C)             \
+                                       : [a] "w"(A), [b] "w"(B)  \
+                                       : "cc")
+
+constants consts;
+
+// 1ステップ更新
+// void step(double rp_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double up_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double vp_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double wp_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double pp_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double rh_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double uh_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double vh_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double wh_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns], double ph_buf[NX+2*Ns][NY+2*Ns][NZ+2*Ns])
+__attribute__((always_inline)) void step(int ix, int iy, int iz, local_buf<double>& buf, elem<double>& p_res, elem<double>& h_res)
+{
+    // const constants consts = consts_;
+
+    asm volatile("// step start");
+
+    const auto& e = buf.p[ix][iy][iz];
+    const double& u = e.u;
+    const double& r = e.r;
+    const double& v = e.v;
+    const double& w = e.w;
+    const double& p = e.p;
+
+    const double r1 = 1.0 / r;
+    const double r2 = r1 / r;
+    const double r3 = r2 / r;
+
+#include "deriv.txt"
+
+    // ※ これを入れるとスタック消費がものすごく少なくなる
+    if (get_pid() == 2047) {
+        ix = 0;
+    }
+
+    double vis1_xx = consts.num_4_3 * u_xxxx + consts.num_1_3 * v_xxxy + consts.num_1_3 * w_xxxz + u_xxyy + u_xxzz;
+    double vis2_xx = consts.num_1_3 * u_xxxy + consts.num_4_3 * v_xxyy + consts.num_1_3 * w_xxyz + v_xxzz + v_xxxx;
+    double vis3_xx = consts.num_1_3 * u_xxxz + consts.num_1_3 * v_xxyz + consts.num_4_3 * w_xxzz + w_xxyy + w_xxxx;
+    double vis1_yy = consts.num_4_3 * u_xxyy + consts.num_1_3 * v_xyyy + consts.num_1_3 * w_xyyz + u_yyzz + u_yyyy;
+    double vis2_yy = consts.num_1_3 * u_xyyy + consts.num_4_3 * v_yyyy + consts.num_1_3 * w_yyyz + v_xxyy + v_yyzz;
+    double vis3_yy = consts.num_1_3 * u_xyyz + consts.num_1_3 * v_yyyz + consts.num_4_3 * w_yyzz + w_xxyy + w_yyyy;
+    double vis1_zz = consts.num_4_3 * u_xxzz + consts.num_1_3 * v_xyzz + consts.num_1_3 * w_xzzz + u_yyzz + u_zzzz;
+    double vis2_zz = consts.num_1_3 * u_xyzz + consts.num_4_3 * v_yyzz + consts.num_1_3 * w_yzzz + v_xxzz + v_zzzz;
+    double vis3_zz = consts.num_1_3 * u_xzzz + consts.num_1_3 * v_yzzz + consts.num_4_3 * w_zzzz + w_xxzz + w_yyzz;
+    double vis1_xy = consts.num_4_3 * u_xxxy + consts.num_1_3 * v_xxyy + consts.num_1_3 * w_xxyz + u_xyzz + u_xyyy;
+    double vis2_xy = consts.num_1_3 * u_xxyy + consts.num_4_3 * v_xyyy + consts.num_1_3 * w_xyyz + v_xyzz + v_xxxy;
+    double vis2_yz = consts.num_1_3 * u_xyyz + consts.num_4_3 * v_yyyz + consts.num_1_3 * w_yyzz + v_xxyz + v_yzzz;
+    double vis3_yz = consts.num_1_3 * u_xyzz + consts.num_1_3 * v_yyzz + consts.num_4_3 * w_yzzz + w_xxyz + w_yyyz;
+    double vis1_xz = consts.num_4_3 * u_xxxz + consts.num_1_3 * v_xxyz + consts.num_1_3 * w_xxzz + u_xyyz + u_xzzz;
+    double vis3_xz = consts.num_1_3 * u_xxzz + consts.num_1_3 * v_xyzz + consts.num_4_3 * w_xzzz + w_xyyz + w_xxxz;
+
+    double vis1_x = consts.num_4_3 * u_xxx + consts.num_1_3 * v_xxy + consts.num_1_3 * w_xxz + u_xyy + u_xzz;
+    double vis2_x = consts.num_1_3 * u_xxy + consts.num_4_3 * v_xyy + consts.num_1_3 * w_xyz + v_xzz + v_xxx;
+    double vis3_x = consts.num_1_3 * u_xxz + consts.num_1_3 * v_xyz + consts.num_4_3 * w_xzz + w_xyy + w_xxx;
+    double vis1_y = consts.num_4_3 * u_xxy + consts.num_1_3 * v_xyy + consts.num_1_3 * w_xyz + u_yzz + u_yyy;
+    double vis2_y = consts.num_1_3 * u_xyy + consts.num_4_3 * v_yyy + consts.num_1_3 * w_yyz + v_xxy + v_yzz;
+    double vis3_y = consts.num_1_3 * u_xyz + consts.num_1_3 * v_yyz + consts.num_4_3 * w_yzz + w_xxy + w_yyy;
+    double vis1_z = consts.num_4_3 * u_xxz + consts.num_1_3 * v_xyz + consts.num_1_3 * w_xzz + u_yyz + u_zzz;
+    double vis2_z = consts.num_1_3 * u_xyz + consts.num_4_3 * v_yyz + consts.num_1_3 * w_yzz + v_xxz + v_zzz;
+    double vis3_z = consts.num_1_3 * u_xzz + consts.num_1_3 * v_yzz + consts.num_4_3 * w_zzz + w_xxz + w_yyz;
+
+    double vis1 = consts.num_4_3 * u_xx + consts.num_1_3 * v_xy + consts.num_1_3 * w_xz + u_yy + u_zz;
+    double vis2 = consts.num_1_3 * u_xy + consts.num_4_3 * v_yy + consts.num_1_3 * w_yz + v_xx + v_zz;
+    double vis3 = consts.num_1_3 * u_xz + consts.num_1_3 * v_yz + consts.num_4_3 * w_zz + w_xx + w_yy;
+
+    double r_tx = -r * u_xx - r * v_xy - r * w_xz - consts.num2 * r_x * u_x - r_x * v_y - r_x * w_z - r_xy * v - r_xz * w - r_xx * u - r_y * v_x - r_z * w_x;
+    double u_tx = -consts.c * r2 * r_x * vis1 + consts.c * r1 * vis1_x + p_x * r2 * r_x - p_xx * r1 - u * u_xx - (u_x * u_x) - u_xy * v - u_xz * w - u_y * v_x - u_z * w_x;
+    double v_tx = -consts.c * r2 * r_x * vis2 + consts.c * r1 * vis2_x - p_xy * r1 + p_y * r2 * r_x - u * v_xx - u_x * v_x - v * v_xy - v_x * v_y - v_xz * w - v_z * w_x;
+    double w_tx = -consts.c * r2 * r_x * vis3 + consts.c * r1 * vis3_x - p_xz * r1 + p_z * r2 * r_x - u * w_xx - u_x * w_x - v * w_xy - v_x * w_y - w * w_xz - w_x * w_z;
+    double p_tx = -consts.c2 * u * vis1_x - consts.c2 * u_x * vis1 - consts.c2 * v * vis2_x - consts.c2 * v_x * vis2 - consts.c2 * vis3 * w_x - consts.c2 * vis3_x * w - consts.gm * p * u_xx - consts.gm * p * v_xy - consts.gm * p * w_xz - consts.gm * p_x * u_x - consts.gm * p_x * v_y - consts.gm * p_x * w_z - p_x * u_x - p_xy * v - p_xz * w - p_xx * u - p_y * v_x - p_z * w_x;
+
+    double r_ty = -r * u_xy - r * v_yy - r * w_yz - r_x * u_y - r_xy * u - r_y * u_x - consts.num2 * r_y * v_y - r_y * w_z - r_yz * w - r_yy * v - r_z * w_y;
+    double u_ty = -consts.c * r2 * r_y * vis1 + consts.c * r1 * vis1_y + p_x * r2 * r_y - p_xy * r1 - u * u_xy - u_x * u_y - u_y * v_y - u_yz * w - u_yy * v - u_z * w_y;
+    double v_ty = -consts.c * r2 * r_y * vis2 + consts.c * r1 * vis2_y + p_y * r2 * r_y - p_yy * r1 - u * v_xy - u_y * v_x - v * v_yy - (v_y * v_y) - v_yz * w - v_z * w_y;
+    double w_ty = -consts.c * r2 * r_y * vis3 + consts.c * r1 * vis3_y - p_yz * r1 + p_z * r2 * r_y - u * w_xy - u_y * w_x - v * w_yy - v_y * w_y - w * w_yz - w_y * w_z;
+    double p_ty = -consts.c2 * u * vis1_y - consts.c2 * u_y * vis1 - consts.c2 * v * vis2_y - consts.c2 * v_y * vis2 - consts.c2 * vis3 * w_y - consts.c2 * vis3_y * w - consts.gm * p * u_xy - consts.gm * p * v_yy - consts.gm * p * w_yz - consts.gm * p_y * u_x - consts.gm * p_y * v_y - consts.gm * p_y * w_z - p_x * u_y - p_xy * u - p_y * v_y - p_yz * w - p_yy * v - p_z * w_y;
+
+    double r_tz = -r * u_xz - r * v_yz - r * w_zz - r_x * u_z - r_xz * u - r_y * v_z - r_yz * v - r_z * u_x - r_z * v_y - consts.num2 * r_z * w_z - r_zz * w;
+    double u_tz = -consts.c * r2 * r_z * vis1 + consts.c * r1 * vis1_z + p_x * r2 * r_z - p_xz * r1 - u * u_xz - u_x * u_z - u_y * v_z - u_yz * v - u_z * w_z - u_zz * w;
+    double v_tz = -consts.c * r2 * r_z * vis2 + consts.c * r1 * vis2_z + p_y * r2 * r_z - p_yz * r1 - u * v_xz - u_z * v_x - v * v_yz - v_y * v_z - v_z * w_z - v_zz * w;
+    double w_tz = -consts.c * r2 * r_z * vis3 + consts.c * r1 * vis3_z + p_z * r2 * r_z - p_zz * r1 - u * w_xz - u_z * w_x - v * w_yz - v_z * w_y - w * w_zz - (w_z * w_z);
+    double p_tz = -consts.c2 * u * vis1_z - consts.c2 * u_z * vis1 - consts.c2 * v * vis2_z - consts.c2 * v_z * vis2 - consts.c2 * vis3 * w_z - consts.c2 * vis3_z * w - consts.gm * p * u_xz - consts.gm * p * v_yz - consts.gm * p * w_zz - consts.gm * p_z * u_x - consts.gm * p_z * v_y - consts.gm * p_z * w_z - p_x * u_z - p_xz * u - p_y * v_z - p_yz * v - p_z * w_z - p_zz * w;
+
+    double u_txx = consts.num2 * consts.c * r3 * (r_x * r_x) * vis1 - consts.num2 * consts.c * r2 * r_x * vis1_x - consts.c * r2 * r_xx * vis1 + consts.c * r1 * vis1_xx - consts.num2 * p_x * r3 * (r_x * r_x) + p_x * r2 * r_xx + consts.num2 * p_xx * r2 * r_x - p_xxx * r1 - u * u_xxx - consts.num3 * u_x * u_xx - consts.num2 * u_xy * v_x - consts.num2 * u_xz * w_x - u_xxy * v - u_xxz * w - u_y * v_xx - u_z * w_xx;
+    double v_txx = consts.num2 * consts.c * r3 * (r_x * r_x) * vis2 - consts.num2 * consts.c * r2 * r_x * vis2_x - consts.c * r2 * r_xx * vis2 + consts.c * r1 * vis2_xx + consts.num2 * p_xy * r2 * r_x - p_xxy * r1 - consts.num2 * p_y * r3 * (r_x * r_x) + p_y * r2 * r_xx - u * v_xxx - consts.num2 * u_x * v_xx - u_xx * v_x - v * v_xxy - consts.num2 * v_x * v_xy - consts.num2 * v_xz * w_x - v_xx * v_y - v_xxz * w - v_z * w_xx;
+    double w_txx = consts.num2 * consts.c * r3 * (r_x * r_x) * vis3 - consts.num2 * consts.c * r2 * r_x * vis3_x - consts.c * r2 * r_xx * vis3 + consts.c * r1 * vis3_xx + consts.num2 * p_xz * r2 * r_x - p_xxz * r1 - consts.num2 * p_z * r3 * (r_x * r_x) + p_z * r2 * r_xx - u * w_xxx - consts.num2 * u_x * w_xx - u_xx * w_x - v * w_xxy - consts.num2 * v_x * w_xy - v_xx * w_y - w * w_xxz - consts.num2 * w_x * w_xz - w_xx * w_z;
+
+    double u_tyy = consts.num2 * consts.c * r3 * (r_y * r_y) * vis1 - consts.num2 * consts.c * r2 * r_y * vis1_y - consts.c * r2 * r_yy * vis1 + consts.c * r1 * vis1_yy - consts.num2 * p_x * r3 * (r_y * r_y) + p_x * r2 * r_yy + consts.num2 * p_xy * r2 * r_y - p_xyy * r1 - u * u_xyy - u_x * u_yy - consts.num2 * u_xy * u_y - u_y * v_yy - consts.num2 * u_yz * w_y - consts.num2 * u_yy * v_y - u_yyz * w - u_yyy * v - u_z * w_yy;
+    double v_tyy = consts.num2 * consts.c * r3 * (r_y * r_y) * vis2 - consts.num2 * consts.c * r2 * r_y * vis2_y - consts.c * r2 * r_yy * vis2 + consts.c * r1 * vis2_yy - consts.num2 * p_y * r3 * (r_y * r_y) + p_y * r2 * r_yy + consts.num2 * p_yy * r2 * r_y - p_yyy * r1 - u * v_xyy - consts.num2 * u_y * v_xy - u_yy * v_x - v * v_yyy - consts.num3 * v_y * v_yy - consts.num2 * v_yz * w_y - v_yyz * w - v_z * w_yy;
+    double w_tyy = consts.num2 * consts.c * r3 * (r_y * r_y) * vis3 - consts.num2 * consts.c * r2 * r_y * vis3_y - consts.c * r2 * r_yy * vis3 + consts.c * r1 * vis3_yy + consts.num2 * p_yz * r2 * r_y - p_yyz * r1 - consts.num2 * p_z * r3 * (r_y * r_y) + p_z * r2 * r_yy - u * w_xyy - consts.num2 * u_y * w_xy - u_yy * w_x - v * w_yyy - consts.num2 * v_y * w_yy - v_yy * w_y - w * w_yyz - consts.num2 * w_y * w_yz - w_yy * w_z;
+
+    double u_tzz = consts.num2 * consts.c * r3 * (r_z * r_z) * vis1 - consts.num2 * consts.c * r2 * r_z * vis1_z - consts.c * r2 * r_zz * vis1 + consts.c * r1 * vis1_zz - consts.num2 * p_x * r3 * (r_z * r_z) + p_x * r2 * r_zz + consts.num2 * p_xz * r2 * r_z - p_xzz * r1 - u * u_xzz - u_x * u_zz - consts.num2 * u_xz * u_z - u_y * v_zz - consts.num2 * u_yz * v_z - u_yzz * v - u_z * w_zz - consts.num2 * u_zz * w_z - u_zzz * w;
+    double v_tzz = consts.num2 * consts.c * r3 * (r_z * r_z) * vis2 - consts.num2 * consts.c * r2 * r_z * vis2_z - consts.c * r2 * r_zz * vis2 + consts.c * r1 * vis2_zz - consts.num2 * p_y * r3 * (r_z * r_z) + p_y * r2 * r_zz + consts.num2 * p_yz * r2 * r_z - p_yzz * r1 - u * v_xzz - consts.num2 * u_z * v_xz - u_zz * v_x - v * v_yzz - v_y * v_zz - consts.num2 * v_yz * v_z - v_z * w_zz - consts.num2 * v_zz * w_z - v_zzz * w;
+    double w_tzz = consts.num2 * consts.c * r3 * (r_z * r_z) * vis3 - consts.num2 * consts.c * r2 * r_z * vis3_z - consts.c * r2 * r_zz * vis3 + consts.c * r1 * vis3_zz - consts.num2 * p_z * r3 * (r_z * r_z) + p_z * r2 * r_zz + consts.num2 * p_zz * r2 * r_z - p_zzz * r1 - u * w_xzz - consts.num2 * u_z * w_xz - u_zz * w_x - v * w_yzz - consts.num2 * v_z * w_yz - v_zz * w_y - w * w_zzz - consts.num3 * w_z * w_zz;
+
+    double u_txy = consts.num2 * consts.c * r3 * r_x * r_y * vis1 - consts.c * r2 * r_x * vis1_y - consts.c * r2 * r_xy * vis1 - consts.c * r2 * r_y * vis1_x + consts.c * r1 * vis1_xy - consts.num2 * p_x * r3 * r_x * r_y + p_x * r2 * r_xy + p_xy * r2 * r_x + p_xx * r2 * r_y - p_xxy * r1 - u * u_xxy - consts.num2 * u_x * u_xy - u_xy * v_y - u_xyz * w - u_xyy * v - u_xz * w_y - u_xx * u_y - u_y * v_xy - u_yz * w_x - u_yy * v_x - u_z * w_xy;
+    double v_txy = consts.num2 * consts.c * r3 * r_x * r_y * vis2 - consts.c * r2 * r_x * vis2_y - consts.c * r2 * r_xy * vis2 - consts.c * r2 * r_y * vis2_x + consts.c * r1 * vis2_xy + p_xy * r2 * r_y - p_xyy * r1 - consts.num2 * p_y * r3 * r_x * r_y + p_y * r2 * r_xy + p_yy * r2 * r_x - u * v_xxy - u_x * v_xy - u_xy * v_x - u_y * v_xx - v * v_xyy - v_x * v_yy - consts.num2 * v_xy * v_y - v_xyz * w - v_xz * w_y - v_yz * w_x - v_z * w_xy;
+
+    double v_tyz = consts.num2 * consts.c * r3 * r_y * r_z * vis2 - consts.c * r2 * r_y * vis2_z - consts.c * r2 * r_yz * vis2 - consts.c * r2 * r_z * vis2_y + consts.c * r1 * vis2_yz - consts.num2 * p_y * r3 * r_y * r_z + p_y * r2 * r_yz + p_yz * r2 * r_y + p_yy * r2 * r_z - p_yyz * r1 - u * v_xyz - u_y * v_xz - u_yz * v_x - u_z * v_xy - v * v_yyz - consts.num2 * v_y * v_yz - v_yz * w_z - v_yzz * w - v_yy * v_z - v_z * w_yz - v_zz * w_y;
+    double w_tyz = consts.num2 * consts.c * r3 * r_y * r_z * vis3 - consts.c * r2 * r_y * vis3_z - consts.c * r2 * r_yz * vis3 - consts.c * r2 * r_z * vis3_y + consts.c * r1 * vis3_yz + p_yz * r2 * r_z - p_yzz * r1 - consts.num2 * p_z * r3 * r_y * r_z + p_z * r2 * r_yz + p_zz * r2 * r_y - u * w_xyz - u_y * w_xz - u_yz * w_x - u_z * w_xy - v * w_yyz - v_y * w_yz - v_yz * w_y - v_z * w_yy - w * w_yzz - w_y * w_zz - consts.num2 * w_yz * w_z;
+
+    double u_txz = consts.num2 * consts.c * r3 * r_x * r_z * vis1 - consts.c * r2 * r_x * vis1_z - consts.c * r2 * r_xz * vis1 - consts.c * r2 * r_z * vis1_x + consts.c * r1 * vis1_xz - consts.num2 * p_x * r3 * r_x * r_z + p_x * r2 * r_xz + p_xz * r2 * r_x + p_xx * r2 * r_z - p_xxz * r1 - u * u_xxz - consts.num2 * u_x * u_xz - u_xy * v_z - u_xyz * v - u_xz * w_z - u_xzz * w - u_xx * u_z - u_y * v_xz - u_yz * v_x - u_z * w_xz - u_zz * w_x;
+    double w_txz = consts.num2 * consts.c * r3 * r_x * r_z * vis3 - consts.c * r2 * r_x * vis3_z - consts.c * r2 * r_xz * vis3 - consts.c * r2 * r_z * vis3_x + consts.c * r1 * vis3_xz + p_xz * r2 * r_z - p_xzz * r1 - consts.num2 * p_z * r3 * r_x * r_z + p_z * r2 * r_xz + p_zz * r2 * r_x - u * w_xxz - u_x * w_xz - u_xz * w_x - u_z * w_xx - v * w_xyz - v_x * w_yz - v_xz * w_y - v_z * w_xy - w * w_xzz - w_x * w_zz - consts.num2 * w_xz * w_z;
+
+    double vis1_t = consts.num_4_3 * u_txx + consts.num_1_3 * v_txy + consts.num_1_3 * w_txz + u_tyy + u_tzz;
+    double vis2_t = consts.num_1_3 * u_txy + consts.num_4_3 * v_tyy + consts.num_1_3 * w_tyz + v_txx + v_tzz;
+    double vis3_t = consts.num_1_3 * u_txz + consts.num_1_3 * v_tyz + consts.num_4_3 * w_tzz + w_txx + w_tyy;
+
+    double r_t = -r * u_x - r * v_y - r * w_z - r_x * u - r_y * v - r_z * w;
+    double u_t = consts.c * r1 * vis1 - p_x * r1 - u * u_x - u_y * v - u_z * w;
+    double v_t = consts.c * r1 * vis2 - p_y * r1 - u * v_x - v * v_y - v_z * w;
+    double w_t = consts.c * r1 * vis3 - p_z * r1 - u * w_x - v * w_y - w * w_z;
+    double p_t = -consts.c2 * u * vis1 - consts.c2 * v * vis2 - consts.c2 * vis3 * w - consts.gm * p * u_x - consts.gm * p * v_y - consts.gm * p * w_z - p_x * u - p_y * v - p_z * w;
+
+    double r_tt = -r * u_tx - r * v_ty - r * w_tz - r_t * u_x - r_t * v_y - r_t * w_z - r_tx * u - r_ty * v - r_tz * w - r_x * u_t - r_y * v_t - r_z * w_t;
+    double u_tt = -consts.c * r2 * r_t * vis1 + consts.c * r1 * vis1_t - p_tx * r1 + p_x * r2 * r_t - u * u_tx - u_t * u_x - u_ty * v - u_tz * w - u_y * v_t - u_z * w_t;
+    double v_tt = -consts.c * r2 * r_t * vis2 + consts.c * r1 * vis2_t - p_ty * r1 + p_y * r2 * r_t - u * v_tx - u_t * v_x - v * v_ty - v_t * v_y - v_tz * w - v_z * w_t;
+    double w_tt = -consts.c * r2 * r_t * vis3 + consts.c * r1 * vis3_t - p_tz * r1 + p_z * r2 * r_t - u * w_tx - u_t * w_x - v * w_ty - v_t * w_y - w * w_tz - w_t * w_z;
+    double p_tt = -consts.c2 * u * vis1_t - consts.c2 * u_t * vis1 - consts.c2 * v * vis2_t - consts.c2 * v_t * vis2 - consts.c2 * vis3 * w_t - consts.c2 * vis3_t * w - consts.gm * p * u_tx - consts.gm * p * v_ty - consts.gm * p * w_tz - consts.gm * p_t * u_x - consts.gm * p_t * v_y - consts.gm * p_t * w_z - p_tx * u - p_ty * v - p_tz * w - p_x * u_t - p_y * v_t - p_z * w_t;
+
+    const auto& rh = buf.h[ix][iy][iz];
+
+    elem<double> t = { r_t, u_t, v_t, w_t, p_t };
+    elem<double> tt = { r_tt, u_tt, v_tt, w_tt, p_tt };
+
+    p_res = rh + (3 * consts.dt / 2) * t + (5 * consts.dt * consts.dt / 12) * tt;
+    h_res = rh + consts.dt * t;
+
+    asm volatile("// step end");
+}
+
+// constexpr int CALC_THREAD = 123 * 16 * 8;
+
+/*
+void update(
+  walls<double> *wall,
+  local_buf<double> *buf_in,
+  local_buf<double> *buf_out
+) {
+  int tid = get_tid();
+  int gid = get_pid() * THREADS_PER_PE + tid;
+  int gws = get_maxpid() * THREADS_PER_PE;
+
+  elem<double> p_res, h_res;
+
+  for (int it = 0; it < NT; it++) {
+    // x方向の壁を読む
+    copy_cubo(buf_in->p, wall->px[it], {NX, 0, 0}, {0, 0, 0}, {2 * Ns, NY + 2 * Ns, NZ + 2 * Ns});
+    copy_cubo(buf_in->h, wall->hx[it], {NX, 0, 0}, {0, 0, 0}, {2 * Ns, NY + 2 * Ns, NZ + 2 * Ns});
+
+    // y方向の壁を読む
+    copy_cubo(buf_in->p, wall->py[it], {0, NY, 0}, {0, 0, 0}, {NX + 2 * Ns, 2 * Ns, NZ + 2 * Ns});
+    copy_cubo(buf_in->h, wall->hy[it], {0, NY, 0}, {0, 0, 0}, {NX + 2 * Ns, 2 * Ns, NZ + 2 * Ns});
+
+    // z方向の壁を読む
+    copy_cubo(buf_in->p, wall->pz[it], {0, 0, NZ}, {0, 0, 0}, {NX + 2 * Ns, NY + 2 * Ns, 2 * Ns});
+    copy_cubo(buf_in->h, wall->hz[it], {0, 0, NZ}, {0, 0, 0}, {NX + 2 * Ns, NY + 2 * Ns, 2 * Ns});
+
+    // x方向の壁を書く
+    copy_cubo(wall->px[it], buf_in->p, {0, 0, 0}, {0, 0, 0}, {2 * Ns, NY + 2 * Ns, NZ + 2 * Ns});
+    copy_cubo(wall->hx[it], buf_in->h, {0, 0, 0}, {0, 0, 0}, {2 * Ns, NY + 2 * Ns, NZ + 2 * Ns});
+
+    // y方向の壁を書く
+    copy_cubo(wall->py[it], buf_in->p, {0, 0, 0}, {0, 0, 0}, {NX + 2 * Ns, 2 * Ns, NZ + 2 * Ns});
+    copy_cubo(wall->hy[it], buf_in->h, {0, 0, 0}, {0, 0, 0}, {NX + 2 * Ns, 2 * Ns, NZ + 2 * Ns});
+
+    // z方向の壁を書く
+    copy_cubo(wall->pz[it], buf_in->p, {0, 0, 0}, {0, 0, 0}, {NX + 2 * Ns, NY + 2 * Ns, 2 * Ns});
+    copy_cubo(wall->hz[it], buf_in->h, {0, 0, 0}, {0, 0, 0}, {NX + 2 * Ns, NY + 2 * Ns, 2 * Ns});
+
+    flush_L2();
+
+    for (int i = gid; i < NX * NY * NZ; i += gws) {
+      TakeProfile<false, true> prof_all_(auxPerf[1]);
+
+      int ix = i / NZ / NY % NX;
+      int iy = i / NZ % NY;
+      int iz = i % NZ;
+
+      step(ix + Ns, iy + Ns, iz + Ns, *buf_in, p_res, h_res);
+      sync_L2();
+
+      buf_out->p[ix][iy][iz] = p_res;
+      buf_out->h[ix][iy][iz] = h_res;
+      sync_L2();
+    }
+  }
+}
+*/
+
+constexpr int gws = 1984 * THREADS_PER_PE;
+
+// スタックフレーム構築しなおしのために、これはインライン化させない
+template <typename T>
+__attribute__((noinline)) void next(
+    floors<T>* fio,
+    tmp_walls<T>* tmp_wall,
+    local_buf<double>* tmp1,
+    local_buf<double>* tmp2,
+    int phase)
+{
+    int tid = get_tid();
+    int gid = get_pid() * THREADS_PER_PE + tid;
+
+    if (gid == 0) {
+        for (int i = 0; i < 16; i++) {
+            auxPerf[i].Clear();
+        }
+    }
+
+    TakeProfile<false, false> prof_all_(auxPerf[0]);
+
+    // FIXME: tmp_wallの初期化、これ要る？
+
+    // // tmp_wall_xの初期化
+    // const elem<double> init = {1, 0, 0, 0, 0};
+
+    // for (int jz = 0; jz < MZ; jz++) {
+    //   for (int jy = 0; jy < MY; jy++) {
+    //     for(int it = 0; it < NT; it++) {
+    //       fill_cubo(tmp_wall->px[jy][jz][it], init, {0, 0, 0}, {2 * Ns, NY + 2 * Ns, NZ + 2 * Ns});
+    //       fill_cubo(tmp_wall->hx[jy][jz][it], init, {0, 0, 0}, {2 * Ns, NY + 2 * Ns, NZ + 2 * Ns});
+    //     }
+    //   }
+    // }
+
+    elem<double> p_res, h_res;
+
+    // 領域に順にupdateを適用し、壁と床出力を受けとる
+    for (int jx = MX - 1; jx >= (phase ? 0 : 1); jx--) {
+        // // tmp_wall_yの初期化
+        // for (int jz = 0; jz < MZ; jz++) {
+        //   for(int it = 0; it < NT; it++){
+        //     fill_cubo(tmp_wall->py[jz][it], init, {0, 0, 0}, {NX + 2 * Ns, 2 * Ns, NZ + 2 * Ns});
+        //     fill_cubo(tmp_wall->hy[jz][it], init, {0, 0, 0}, {NX + 2 * Ns, 2 * Ns, NZ + 2 * Ns});
+        //   }
+        // }
+
+        for (int jy = MY - 1; jy >= (phase ? 0 : 1); jy--) {
+            // // z壁の初期化
+            // for(int it = 0; it < NT; it++){
+            //   fill_cubo(wall->pz[it], init, {0, 0, 0}, {NX + 2 * Ns, NY + 2 * Ns, 2 * Ns});
+            //   fill_cubo(wall->hz[it], init, {0, 0, 0}, {NX + 2 * Ns, NY + 2 * Ns, 2 * Ns});
+            // }
+
+            for (int jz = MZ - 1; jz >= (phase ? 0 : 1); jz--) {
+                // 皮フェーズは、いずれかが0の時のみ計算
+                if (phase && jx != 0 && jy != 0 && jz != 0) {
+                    continue;
+                }
+
+                // 床を渡す
+                // copy_cubo(tmp1->p, fio->p, {0, 0, 0}, {jx*NX, jy*NY, jz*NZ}, {NX, NY, NZ});
+                // copy_cubo(tmp1->h, fio->h, {0, 0, 0}, {jx*NX, jy*NY, jz*NZ}, {NX, NY, NZ});
+                {
+                    constexpr int r0 = NX;
+                    constexpr int r1 = NY;
+                    constexpr int r2 = NZ;
+
+                    for (int ttt = gid; ttt < r0 * r1 * r2; ttt += gws) {
+                        int x = ttt / r2 / r1;
+                        int y = ttt / r2 % r1;
+                        int z = ttt % r2;
+
+                        auto& r = fio->v[x][y][z];
+                        tmp1->p[x][y][z] = r.p;
+                        tmp1->h[x][y][z] = r.h;
+                    }
+                }
+
+                for (int it = 0; it < NT; it++) {
+                    // 壁読み書き
+                    // sync_L2();
+                    {
+                        constexpr int r0 = 2 * Ns;
+                        constexpr int r1 = NY + 2 * Ns;
+                        constexpr int r2 = NZ + 2 * Ns;
+
+                        for (int ttt = gid; ttt < r0 * r1 * r2; ttt += gws) {
+                            int x = ttt / r2 / r1;
+                            int y = ttt / r2 % r1;
+                            int z = ttt % r2;
+
+                            auto& r = tmp_wall->x[jy][jz][it][x][y][z];
+                            tmp1->p[NX + x][y][z] = r.p;
+                            tmp1->h[NX + x][y][z] = r.h;
+                            r.p = tmp1->p[x][y][z];
+                            r.h = tmp1->h[x][y][z];
+                        }
+                    }
+                    // sync_L2();
+                    {
+                        constexpr int r0 = NX + 2 * Ns;
+                        constexpr int r1 = 2 * Ns;
+                        constexpr int r2 = NZ + 2 * Ns;
+
+                        for (int ttt = gid; ttt < r0 * r1 * r2; ttt += gws) {
+                            int x = ttt / r2 / r1;
+                            int y = ttt / r2 % r1;
+                            int z = ttt % r2;
+
+                            auto& r = tmp_wall->y[jx][jz][it][x][y][z];
+                            tmp1->p[x][NY + y][z] = r.p;
+                            tmp1->h[x][NY + y][z] = r.h;
+                            r.p = tmp1->p[x][y][z];
+                            r.h = tmp1->h[x][y][z];
+                        }
+                    }
+                    // sync_L2();
+                    {
+                        constexpr int r0 = NX + 2 * Ns;
+                        constexpr int r1 = NY + 2 * Ns;
+                        constexpr int r2 = 2 * Ns;
+
+                        for (int ttt = gid; ttt < r0 * r1 * r2; ttt += gws) {
+                            int x = ttt / r2 / r1;
+                            int y = ttt / r2 % r1;
+                            int z = ttt % r2;
+
+                            auto& r = tmp_wall->z[jx][jy][it][x][y][z];
+                            tmp1->p[x][y][NZ + z] = r.p;
+                            tmp1->h[x][y][NZ + z] = r.h;
+                            r.p = tmp1->p[x][y][z];
+                            r.h = tmp1->h[x][y][z];
+                        }
+                    }
+
+                    // 書き込んだ壁のデータを反映させるのに必要
+                    sync();
+                    flush_L2();
+
+                    /*
+          for (int i = gid; i < NX * NY * NZ; i += gws) {
+            // TakeProfile<false, true> prof_all_(auxPerf[1]);
+            int ix = i / NZ / NY % NX;
+            int iy = i / NZ % NY;
+            int iz = i % NZ;
+            step(ix + Ns, iy + Ns, iz + Ns, *tmp1, tmp2->p[ix][iy][iz], tmp2->h[ix][iy][iz]);
+          }
+          */
+
+                    int city = gid / 64;
+                    int cz = gid % 2 + ((gid >> 2) & 1) * 2;
+                    int cy = gid % 4 / 2 + (gid % 16 / 8) * 2;
+                    int cx = gid % 64 / 4 / 4;
+
+                    for (int i = city; i < NX * NY * NZ / 64; i += gws / 64) {
+                        // TakeProfile<false, true> prof_all_(auxPerf[1]);
+                        int ix = cx + (i / (NZ / 4) / (NY / 4) % (NX / 4)) * 4;
+                        int iy = cy + (i / (NZ / 4) % (NY / 4)) * 4;
+                        int iz = cz + (i % (NZ / 4)) * 4;
+                        sync_L1();
+                        step(ix + Ns, iy + Ns, iz + Ns, *tmp1, tmp2->p[ix][iy][iz], tmp2->h[ix][iy][iz]);
+                    }
+
+                    // tmp2に全部書き終わっていなければいけない
+                    sync();
+                    swap(tmp1, tmp2);
+                }
+
+                // 床の受けとり
+                // sync_L2();
+                // copy_cubo(fio->p, tmp1->p, {jx*NX, jy*NY, jz*NZ}, {0, 0, 0}, {NX, NY, NZ});
+                // copy_cubo(fio->h, tmp1->h, {jx*NX, jy*NY, jz*NZ}, {0, 0, 0}, {NX, NY, NZ});
+                {
+                    constexpr int r0 = NX;
+                    constexpr int r1 = NY;
+                    constexpr int r2 = NZ;
+
+                    for (int ttt = gid; ttt < r0 * r1 * r2; ttt += gws) {
+                        int x = ttt / r2 / r1;
+                        int y = ttt / r2 % r1;
+                        int z = ttt % r2;
+
+                        auto& r = fio->v[x][y][z];
+                        r.p = tmp1->p[x][y][z];
+                        r.h = tmp1->h[x][y][z];
+                    }
+                }
+            }
+        }
+    }
+}
+
+/*
+void pzc_next_f32(
+  floors<float> *fio,         /// 入出力
+  tmp_walls<float> *tmp_wall, /// 壁バッファ
+  local_buf<double> *tmp1,     /// 一回で処理する分を入れるためのバッファ
+  local_buf<double> *tmp2,     /// 一回で処理する分を入れるためのバッファ
+  int phase                    /// 0: 内部, 1: 皮
+) {
+  if (get_tid() >= THREADS_PER_PE) {
+    return;
+  }
+
+  // スタック付け替え
+  // 引数が読めなくなるかもしれない（レジスタ渡しの範囲だからのこるかもしれないけど）ので、
+  // グローバル領域に書いておく
+  static struct {
+    floors<float> *fio;
+    tmp_walls<float> *tmp_wall;
+    local_buf<double> *tmp1;
+    local_buf<double> *tmp2;
+    int phase;
+  } args;
+
+  args.fio = fio;
+  args.tmp_wall = tmp_wall;
+  args.tmp1 = tmp1;
+  args.tmp2 = tmp2;
+  args.phase = phase;
+
+  asm volatile("i64.mov sp %0"
+                :
+                : "r"((size_t)((get_tid() + 1) * 4800 - 8))
+                : "x2", "memory");
+
+  // ここから処理開始
+  next(args.fio, args.tmp_wall, args.tmp1, args.tmp2, args.phase);
+
+  // ブートコードには戻れないので自分でhalt
+  flush();
+  asm volatile("c.halt");
+}
+*/
+
+void pzc_next(
+    floors<double>* fio, /// 入出力
+    tmp_walls<double>* tmp_wall, /// 壁バッファ
+    local_buf<double>* tmp1, /// 一回で処理する分を入れるためのバッファ
+    local_buf<double>* tmp2, /// 一回で処理する分を入れるためのバッファ
+    int phase /// 0: 内部, 1: 皮
+)
+{
+    if (get_tid() >= THREADS_PER_PE) {
+        return;
+    }
+
+    // スタック付け替え
+    // 引数が読めなくなるかもしれない（レジスタ渡しの範囲だからのこるかもしれないけど）ので、
+    // グローバル領域に書いておく
+    static struct {
+        floors<double>* fio;
+        tmp_walls<double>* tmp_wall;
+        local_buf<double>* tmp1;
+        local_buf<double>* tmp2;
+        int phase;
+    } args;
+
+    args.fio = fio;
+    args.tmp_wall = tmp_wall;
+    args.tmp1 = tmp1;
+    args.tmp2 = tmp2;
+    args.phase = phase;
+
+    asm volatile("i64.mov sp %0"
+                 :
+                 : "r"((size_t)((get_tid() + 1) * 4800 - 8))
+                 : "x2", "memory");
+
+    // ここから処理開始
+    next(args.fio, args.tmp_wall, args.tmp1, args.tmp2, args.phase);
+
+    // ブートコードには戻れないので自分でhalt
+    flush();
+    asm volatile("c.halt");
+}
+
+void pzc_test1(local_buf<double>* buf)
+{
+    // スタックを2スレッド分使うために、スレッドを間引く
+    // デフォルトでは1スレッド当たり2048バイトずつ、
+    // 番号の小さいスレッドが上位のアドレスに割り振られるようだ。
+    //
+    // sp[0]:             3FF0
+    // sp[1]:             37F0
+    // sp[2]:             2FF0
+    // sp[3]:             27F0
+    // sp[4]:             1FF0
+    // sp[5]:             17F0
+    // sp[6]:              FF0
+    // sp[7]:              7F0
+
+    static uint64_t sps[8];
+
+    // ここでは、tid = 0, 1, 2, 3 のスレッドを使い、
+    // それぞれが4KB利用できるようにする。
+    {
+        int tid = get_tid();
+        uint64_t sp;
+
+        // sp = x2
+        asm volatile("i64.mov %0 sp"
+                     : "=r"(sp)
+                     :
+                     :);
+        sps[tid] = sp;
+
+        if (tid >= 4) {
+            return;
+        }
+        flush_L1();
+
+        asm volatile("i64.mov sp %0"
+                     :
+                     : "r"(sps[tid * 2])
+                     : "x2");
+        sync();
+
+        // SP変更でローカル変数がおかしくなっているかもしれないので、
+        // これ以前のローカル変数に触らないようにするために、
+        // スコープを閉じる
+    }
+
+    int tid = get_tid();
+    int gid = get_pid() * THREADS_PER_PE + tid;
+    int gws = get_maxpid() * THREADS_PER_PE;
+
+    for (int i = gid; i < (NX + 2 * Ns) * (NY + 2 * Ns) * (NZ + 2 * Ns); i += gws) {
+        int x = i / (NY + 2 * Ns) / (NZ + 2 * Ns);
+        int y = i / (NZ + 2 * Ns) % (NY + 2 * Ns);
+        int z = i % (NZ + 2 * Ns);
+
+        double dx = x;
+        double dy = y;
+        double dz = z;
+
+        buf->p[x][y][z] = { dx, dy, dz, dx + dy + dz, dx * dy * dz };
+        buf->h[x][y][z] = { -dx, -dy, -dz, dx - dy - dz, -dx * dy * dz };
+    }
+
+    flush();
+}

@@ -1,0 +1,69 @@
+#include "include/pzcperf.h"
+#include <pzc_builtin.h>
+
+#define INLINE __attribute__((always_inline))
+
+constexpr int THREADS_PER_PE = 4;
+
+#define MAX_PERF 16384
+// PZCPerformance gPerf[MAX_PERF];
+PZCPerformance auxPerf[16];
+
+void pzc_GetPerformance(PZCPerformance* out, int idx)
+{
+    if (get_tid() == 0 && get_pid() == 0) {
+        if (idx < MAX_PERF) {
+            // *out = gPerf[idx];
+        } else {
+            *out = auxPerf[idx - MAX_PERF];
+        }
+    }
+    flush();
+}
+
+#include "update.h"
+
+void pzc_next(
+    floors<double>* fio, /// 入出力
+    tmp_walls<double>* tmp_wall, /// 壁バッファ
+    local_buf<double>* tmp1, /// 一回で処理する分を入れるためのバッファ
+    local_buf<double>* tmp2, /// 一回で処理する分を入れるためのバッファ
+    int phase /// 0: 内部, 1: 皮
+)
+{
+    if (get_tid() >= THREADS_PER_PE) {
+        return;
+    }
+    if (get_pid() >= 1984) {
+        return;
+    };
+
+    // スタック付け替え
+    // 引数が読めなくなるかもしれない（レジスタ渡しの範囲だからのこるかもしれないけど）ので、
+    // グローバル領域に書いておく
+    static struct {
+        floors<double>* fio;
+        tmp_walls<double>* tmp_wall;
+        local_buf<double>* tmp1;
+        local_buf<double>* tmp2;
+        int phase;
+    } args;
+
+    args.fio = fio;
+    args.tmp_wall = tmp_wall;
+    args.tmp1 = tmp1;
+    args.tmp2 = tmp2;
+    args.phase = phase;
+
+    asm volatile("i64.mov sp %0"
+                 :
+                 : "r"((size_t)((get_tid() + 1) * 4800 - 8))
+                 : "x2", "memory");
+
+    // ここから処理開始
+    next(args.fio, args.tmp_wall, args.tmp1, args.tmp2, args.phase);
+
+    // ブートコードには戻れないので自分でhalt
+    flush();
+    asm volatile("c.halt");
+}

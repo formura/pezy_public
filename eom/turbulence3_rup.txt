@@ -1,0 +1,5 @@
+r[t,x,y,z]_t = -u[t,x,y,z]*r[t,x,y,z]_x - v[t,x,y,z]*r[t,x,y,z]_y - w[t,x,y,z]*r[t,x,y,z]_z - r[t,x,y,z]*(u[t,x,y,z]_x + v[t,x,y,z]_y + w[t,x,y,z]_z)
+u[t,x,y,z]_t = -u[t,x,y,z]*u[t,x,y,z]_x - v[t,x,y,z]*u[t,x,y,z]_y - w[t,x,y,z]*u[t,x,y,z]_z - p[t,x,y,z]_x/r[t,x,y,z] + c*vis1[t,x,y,z]/r[t,x,y,z]
+v[t,x,y,z]_t = -u[t,x,y,z]*v[t,x,y,z]_x - v[t,x,y,z]*v[t,x,y,z]_y - w[t,x,y,z]*v[t,x,y,z]_z - p[t,x,y,z]_y/r[t,x,y,z] + c*vis2[t,x,y,z]/r[t,x,y,z]
+w[t,x,y,z]_t = -u[t,x,y,z]*w[t,x,y,z]_x - v[t,x,y,z]*w[t,x,y,z]_y - w[t,x,y,z]*w[t,x,y,z]_z - p[t,x,y,z]_z/r[t,x,y,z] + c*vis3[t,x,y,z]/r[t,x,y,z]
+p[t,x,y,z]_t = -u[t,x,y,z]*p[t,x,y,z]_x - v[t,x,y,z]*p[t,x,y,z]_y - w[t,x,y,z]*p[t,x,y,z]_z - gm*p[t,x,y,z]*(u[t,x,y,z]_x + v[t,x,y,z]_y + w[t,x,y,z]_z) - c2*(u[t,x,y,z]*vis1[t,x,y,z] + v[t,x,y,z]*vis2[t,x,y,z] + w[t,x,y,z]*vis3[t,x,y,z])

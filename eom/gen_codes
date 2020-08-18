@@ -1,0 +1,40 @@
+#!/bin/bash
+
+fmt=${1:?Need a format}
+eom=${2:?Need a eom file}
+
+del -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del x -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del y -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del z -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del xx -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del yy -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del zz -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del xy -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del yz -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del zx -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+del t -f viscosity.txt -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+
+del -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del x -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del y -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del z -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del xx -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del yy -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del zz -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del xy -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del yz -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+del zx -f ${eom} -o ${fmt} >> eoms.${fmt}
+echo "" >> eoms.${fmt}
+
+del t -f ${eom} -o ${fmt} >> eoms.${fmt}
